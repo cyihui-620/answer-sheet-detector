@@ -283,6 +283,10 @@ $$s = T(r) = (L-1) \sum_{j=0}^{r} p_r(j)$$
 
 **作用**：增强填涂区域与背景的对比度，消除光照不均影响。
 
+![](images/4.png)
+
+**ClAHE详细原理讲解：**https://zhuanlan.zhihu.com/p/412383605
+
 ## 7. 自适应阈值二值化
 
 ### 使用示例
@@ -300,14 +304,7 @@ bin_detect = cv2.adaptiveThreshold(gray_enhanced, 255,
 #### 7.1 高斯加权局部阈值
 **算法选择**：`ADAPTIVE_THRESH_GAUSSIAN_C`
 
-**阈值计算原理**：
-对于每个像素$(x,y)$，计算其邻域内的加权平均值作为阈值：
-
-$$T(x,y) = \mu(x,y) + C$$
-
-其中：
-- $\mu(x,y)$是$(x,y)$邻域的加权平均值
-- $C$是常数偏移量（params['adaptive_c']）
+![](images/5.png)
 
 #### 7.2 高斯权重计算
 **邻域大小**：`adaptive_block=31`（31×31像素的邻域）
@@ -326,6 +323,8 @@ $$dst(x,y) =
 \end{cases}$$
 
 **作用**：将填涂点（暗色）转为白色，背景转为黑色，便于轮廓检测。
+
+**详细解释：**https://blog.csdn.net/Mrliu__/article/details/154084613
 
 ## 8. 连通域
 
