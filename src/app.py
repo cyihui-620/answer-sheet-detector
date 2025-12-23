@@ -54,24 +54,35 @@ if run_btn:
             with col2:
                 st.image(cv2.cvtColor(id_region_warped, cv2.COLOR_BGR2RGB), caption='学号区（透视变换后）')
 
-            # 识别学号（使用 recognize_id.py 中的成熟流程）
+            # 识别学号（使用 recognize_id.py 中的成熟流程），并展示中间图
             with st.spinner('识别学号...'):
                 try:
-                    student_id, _ = recognize_student_id(id_region_warped, show=False)
+                    student_id, id_figs = recognize_student_id(id_region_warped, show=True)
                 except Exception:
                     student_id = '识别失败'
+                    id_figs = []
 
             st.markdown('**识别到的学号：** ' + str(student_id))
 
-            # 识别选择题答案
-            with st.spinner('识别选择题答案...（可能较慢）'):
-                all_answers, figs, region_plots = recognize_answers(sheet_warped, show=False)
+            if id_figs:
+                st.subheader('学号识别中间图')
+                for i, fig in enumerate(id_figs, 1):
+                    if fig is not None:
+                        with st.expander(f'学号处理图 {i}', expanded=(i==1)):
+                            st.pyplot(fig)
 
-            # 显示部分可视化图
-            st.subheader('识别过程示意图')
-            for i, fig in enumerate(figs):
+            # 识别选择题答案，并展示中间可视化图（可能较慢）
+            with st.spinner('识别选择题答案...（可能较慢）'):
+                all_answers, figs, region_plots = recognize_answers(sheet_warped, show=True)
+
+            # 显示答题区整体可视化图
+            st.subheader('答题区识别中间图')
+            for i, fig in enumerate(figs, 1):
                 if fig is not None:
-                    st.pyplot(fig)
+                    with st.expander(f'总体图 {i}', expanded=(i==1)):
+                        st.pyplot(fig)
+
+            # 不展示各子区域的单独处理图（按要求保留总体图与学号图）
 
             # 标准答案加载
             if answers_file is not None:
