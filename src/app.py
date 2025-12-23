@@ -1,3 +1,9 @@
+'''
+Funtion: 启动项目前端，可视化答题卡识别结果
+Note: 详见docs/app.md
+Author: 吴峻松
+Time: 2025-12-23
+'''
 import streamlit as st
 import json
 import tempfile
