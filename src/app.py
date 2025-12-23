@@ -13,7 +13,6 @@ from recognize_answer import recognize_answers
 
 st.set_page_config(page_title='答题卡识别可视化', layout='wide')
 
-st.title('答题卡识别可视化展示')
 st.markdown("""
 <style>
 /* 中央标题和卡片样式 */
@@ -108,7 +107,7 @@ if run_btn:
                 st.subheader('学号识别中间图')
                 for i, fig in enumerate(id_figs, 1):
                     if fig is not None:
-                        with st.expander(f'学号处理图 {i}', expanded=(i==1)):
+                        with st.expander(f'学号处理图 {i}', expanded=False):
                             st.pyplot(fig)
 
             # 识别选择题答案，并展示中间可视化图（可能较慢）
@@ -122,7 +121,7 @@ if run_btn:
                 st.subheader('答题区识别中间图')
                 for i, fig in enumerate(figs, 1):
                     if fig is not None:
-                        with st.expander(f'总体图 {i}', expanded=(i==1)):
+                        with st.expander(f'总体图 {i}', expanded=False):
                             st.pyplot(fig)
 
             # 不展示各子区域的单独处理图（按要求保留总体图与学号图）
