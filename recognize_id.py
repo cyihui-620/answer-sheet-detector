@@ -105,10 +105,10 @@ def get_grid_points(roi, binary, show):
     df_points = pd.DataFrame(points)
 
     # Step2: Kmeans行列聚类
-    df_independent = independent_row_col_clustering(df_points.copy(), rows = 10, cols = 11)
+    df_clustered = independent_row_col_clustering(df_points.copy(), rows = 10, cols = 11)
 
     # Step3: 过滤离群点和重复点                   
-    df_cleaned, df_peripheral_removed, df_duplicates = remove_duplicated_and_outliers(df_independent, interval_multiplier=1.8)
+    df_cleaned, df_peripheral_removed, df_duplicates = remove_duplicated_and_outliers(df_clustered, interval_multiplier=1.5)
 
     # Step4: 插值填补缺失点
     df_complete, df_interpolated = grid_linear_interpoltate(df_cleaned, n_rows=10, n_cols=11)
@@ -140,7 +140,7 @@ def get_grid_points(roi, binary, show):
     ax3.set_xlim(0, roi.shape[1])
     ax3.set_ylim(roi.shape[0], 0)
     ax3.set_aspect('equal')
-    for idx, row in df_independent.iterrows():
+    for idx, row in df_clustered.iterrows():
         ax3.plot(row['cx'], row['cy'], 'ro', markersize=4, alpha=0.5)
         label = f"({int(row['row_id'])}.{int(row['col_id'])})"
         ax3.text(row['cx'], row['cy']-6, label, 
@@ -241,7 +241,7 @@ def independent_row_col_clustering(df_points: pd.DataFrame, rows: int, cols: int
     return df    
 
 def remove_duplicated_and_outliers(df: pd.DataFrame, 
-                                       interval_multiplier: float = 1.8):
+                                       interval_multiplier: float = 1.5):
     """
     去除偏离点和重复点
     
