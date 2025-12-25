@@ -14,10 +14,14 @@ def detect_angle_of_black_line(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (3, 3), 0)
     #二值化（检测黑线）, 手定阈值:30
-    _, binary= cv2.threshold(blur, 30, 255, cv2.THRESH_BINARY_INV)
+    binary = cv2.adaptiveThreshold(blur, 255, 
+                                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                cv2.THRESH_BINARY_INV, 
+                                blockSize=31, 
+                                C=15)
     kernel = np.ones((5, 5), np.uint8)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    edges = cv2.Canny(binary, 50, 150, apertureSize=3)
+    closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
+    edges = cv2.Canny(closed, 50, 150, apertureSize=3)
     #霍夫变换直线检测，检测到多条水平线（分布于两条黑线的上下边缘）
     lines = cv2.HoughLinesP(edges,
                         rho=1,                
@@ -79,4 +83,4 @@ def deskew_sheet(img_path, debug = True):
     return deskewed
 
 if __name__ == "__main__":
-    deskew_sheet('images/test3.jpg', debug = True) 
+    deskew_sheet('../images/test18.jpg', debug = True) 

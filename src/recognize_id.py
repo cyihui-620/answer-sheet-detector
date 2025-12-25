@@ -69,7 +69,7 @@ def preprocess(id_region, show):
 
     ax5 = plt.subplot(2, 3, 5)
     ax5.imshow(binary, cmap = 'gray')
-    ax5.set_title('自适应二值化')
+    ax5.set_title('自适应阈值二值化')
     ax5.set_axis_off()
 
     if not show:
@@ -173,7 +173,7 @@ def get_grid_points(roi, binary, show):
                 color='green', markersize=3, alpha=0.6, markerfacecolor='green')
     for idx, row in df_cleaned.iterrows():
         ax5.plot(row['cx'], row['cy'], 'ro', markersize=3, alpha=0.8)
-    ax5.set_title('插值\n(红=保留, 绿=插值)')
+    ax5.set_title('线性插值\n(红=保留, 绿=插值)')
     ax5.grid(True, alpha=0.3)
 
     ax6 = plt.subplot(2, 3, 6)
@@ -195,11 +195,14 @@ def get_grid_points(roi, binary, show):
     return df_complete, fig
 
 
-def independent_row_col_clustering(df_points: pd.DataFrame, rows: int, cols: int) -> pd.DataFrame:
+def independent_row_col_clustering(df_points: pd.DataFrame, rows: int, cols: int, check: bool = True) -> pd.DataFrame:
     """独立的行列聚类，确保行列号从上到下、从左到右排序"""
-
+    
     df = df_points.copy()
-
+    
+    # 检查第一行点数是否需要特殊处理的标志
+    need_recluster = False
+    
     # 1. 独立行聚类（对所有y坐标聚类）
     y_coords = df['cy'].values.reshape(-1, 1)
     n_rows = min(rows, len(df))
@@ -238,7 +241,60 @@ def independent_row_col_clustering(df_points: pd.DataFrame, rows: int, cols: int
     col_mapping = {old_label: i for i, (old_label, _) in enumerate(sorted_col_labels)}
     df['col_id'] = df['col_label'].map(col_mapping)
     
-    return df    
+    # 3. 如果需要检查第一行点数
+    if check:
+        first_row_points = df[df['row_id'] == 0]
+        
+        if len(first_row_points) == 1:
+            print(f"检测到第一行(row_id=0)只有1个点，将其视为干扰点并移除后重新聚类")
+            need_recluster = True
+    
+    # 4. 如果需要重新聚类
+    if need_recluster:
+        # 移除第一行的点
+        df_filtered = df[df['row_id'] != 0].copy()
+        
+        if len(df_filtered) >= 2:  # 确保有足够的点重新聚类
+            # 重新独立行聚类
+            y_coords_filtered = df_filtered['cy'].values.reshape(-1, 1)
+            kmeans_y_new = KMeans(n_clusters=n_rows, random_state=42, n_init=10)
+            df_filtered['row_label'] = kmeans_y_new.fit_predict(y_coords_filtered)
+            
+            # 重新计算行聚类中心
+            row_centers_new = {}
+            for label in df_filtered['row_label'].unique():
+                row_centers_new[label] = df_filtered[df_filtered['row_label'] == label]['cy'].median()
+            
+            # 按y坐标从小到大排序
+            sorted_labels_new = sorted(row_centers_new.items(), key=lambda x: x[1])
+            
+            # 重新分配行号
+            row_mapping_new = {old_label: i for i, (old_label, _) in enumerate(sorted_labels_new)}
+            df_filtered['row_id'] = df_filtered['row_label'].map(row_mapping_new)
+            
+            # 重新独立列聚类
+            x_coords_filtered = df_filtered['cx'].values.reshape(-1, 1)
+            kmeans_x_new = KMeans(n_clusters=n_cols, random_state=42, n_init=10)
+            df_filtered['col_label'] = kmeans_x_new.fit_predict(x_coords_filtered)
+            
+            # 重新计算列聚类中心
+            col_centers_new = {}
+            for label in df_filtered['col_label'].unique():
+                col_centers_new[label] = df_filtered[df_filtered['col_label'] == label]['cx'].median()
+            
+            # 按x坐标从小到大排序
+            sorted_col_labels_new = sorted(col_centers_new.items(), key=lambda x: x[1])
+            
+            # 重新分配列号
+            col_mapping_new = {old_label: i for i, (old_label, _) in enumerate(sorted_col_labels_new)}
+            df_filtered['col_id'] = df_filtered['col_label'].map(col_mapping_new)
+            
+            print(f"重新聚类完成: 从{len(df)}个点中移除了1个干扰点, 剩余{len(df_filtered)}个点")
+            return df_filtered
+        else:
+            print(f"警告: 移除干扰点后点数不足{rows*cols}个, 返回原聚类结果")
+    
+    return df
 
 def remove_duplicated_and_outliers(df: pd.DataFrame, 
                                        interval_multiplier: float = 1.5):
@@ -451,12 +507,12 @@ def detect_filling_and_recognize_id(roi, binary, df_grid, show):
     # 第一行：三个子图
     ax1 = plt.subplot(2, 3, 1)
     ax1.imshow(closed, cmap='gray')
-    ax1.set_title('闭运算', fontsize=11)
+    ax1.set_title('闭运算(3X3)', fontsize=11)
     ax1.set_axis_off()
 
     ax2 = plt.subplot(2, 3, 2)
     ax2.imshow(eroded, cmap='gray')
-    ax2.set_title('腐蚀', fontsize=11)
+    ax2.set_title('腐蚀(3X3)', fontsize=11)
     ax2.set_axis_off()
 
     ax3 = plt.subplot(2, 3, 3)

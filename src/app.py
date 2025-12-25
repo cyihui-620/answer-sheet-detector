@@ -101,8 +101,8 @@ if run_btn:
             # 结果与预览布局：左侧预览图，右侧分数卡
             left_col, right_col = st.columns([2, 1])
             with left_col:
-                responsive_image(cv2.cvtColor(sheet_warped, cv2.COLOR_BGR2RGB), caption='答题区（透视变换后）')
                 responsive_image(cv2.cvtColor(id_region_warped, cv2.COLOR_BGR2RGB), caption='学号区（透视变换后）')
+                responsive_image(cv2.cvtColor(sheet_warped, cv2.COLOR_BGR2RGB), caption='答题区（透视变换后）')
             with right_col:
                 st.markdown('<div class="score-card">', unsafe_allow_html=True)
                 st.markdown('**识别到的学号**')

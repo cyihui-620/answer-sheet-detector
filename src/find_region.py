@@ -56,7 +56,11 @@ def perspective_transform(img, corners, show=False):
 
 def find_answer_sheet_corners(img_gray, show=False):
     """func:找到答题区域和学号填涂区域的角点"""
-    _, binary = cv2.threshold(img_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    binary = cv2.adaptiveThreshold(img_gray, 255, 
+                                    cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                    cv2.THRESH_BINARY_INV, 
+                                    blockSize=31, 
+                                    C=15)
     kernel = np.ones((5, 5), np.uint8)
     closed = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
     
@@ -116,5 +120,5 @@ def process_answer_sheet(image_path, show=False):
 
 # debug用
 if __name__ == "__main__":
-    sheet_warped, id_region_warped = process_answer_sheet('./images/sheet.jpg', show=True)
+    sheet_warped, id_region_warped = process_answer_sheet('../images/test17.jpg', show=True)
         

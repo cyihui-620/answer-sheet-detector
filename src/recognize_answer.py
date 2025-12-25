@@ -24,11 +24,14 @@ def preprocess_image(image: np.ndarray, show: bool = True) -> Tuple[np.ndarray, 
     图像预处理
     
     参数:
-    - image: 原始BGR图像
-    - show: 是否显示处理过程图
+    ◦ image: 原始BGR图像
+
+    ◦ show: 是否显示处理过程图
+
     
     返回:
-    - tuple: (标准化图像, 二值化图像, 闭运算图像, 图表)
+    ◦ tuple: (标准化图像, 二值化图像, 闭运算图像, 图表)
+
     """
     # Step1：尺寸标准化
     target_size = (820, 680)
@@ -72,7 +75,7 @@ def preprocess_image(image: np.ndarray, show: bool = True) -> Tuple[np.ndarray, 
         (masked, 'cv2.COLOR_BGR2RGB', '遮挡左下角文字区域'),
         (gray, None, '灰度图'),
         (gray_enhanced, None, 'clahe增强'),
-        (binary, None, '自适应二值化'),
+        (binary, None, '自适应阈值二值化'),
         (closed, None, f'闭运算(6x6) + 削除右侧{right_strip_width}px')
     ]
     
@@ -92,7 +95,6 @@ def preprocess_image(image: np.ndarray, show: bool = True) -> Tuple[np.ndarray, 
     return resized, binary, closed, fig
 
 #--------------------------------------------------------------------------------------------------------------------
-# Part2: 检测填涂点位
 def kmeans_clustering_regions(regions: List[Dict], image: np.ndarray, n_rows: int = 5, n_cols: int = 4) -> Tuple[List[float], List[float]]:
     """KMeans聚类分割区域"""
     h, w = image.shape[:2]
@@ -185,32 +187,109 @@ def kmeans_clustering_regions(regions: List[Dict], image: np.ndarray, n_rows: in
     
     return all_horizontal, all_vertical
 
+def calculate_boundary_distances(region_points: List[Dict], x1: float, y1: float, x2: float, y2: float) -> Dict:
+    """计算点到边界的距离"""
+    if not region_points:
+        return {
+            'min_to_left': float('inf'),
+            'min_to_right': float('inf'),
+            'min_to_top': float('inf'),
+            'min_to_bottom': float('inf'),
+            'max_to_left': 0,
+            'max_to_right': 0,
+            'max_to_top': 0,
+            'max_to_bottom': 0
+        }
+    
+    distances = {
+        'to_left': [],
+        'to_right': [],
+        'to_top': [],
+        'to_bottom': []
+    }
+    
+    for point in region_points:
+        cx, cy = point['cx'], point['cy']
+        distances['to_left'].append(cx - x1)
+        distances['to_right'].append(x2 - cx)
+        distances['to_top'].append(cy - y1)
+        distances['to_bottom'].append(y2 - cy)
+    
+    return {
+        'min_to_left': min(distances['to_left']) if distances['to_left'] else float('inf'),
+        'min_to_right': min(distances['to_right']) if distances['to_right'] else float('inf'),
+        'min_to_top': min(distances['to_top']) if distances['to_top'] else float('inf'),
+        'min_to_bottom': min(distances['to_bottom']) if distances['to_bottom'] else float('inf'),
+        'max_to_left': max(distances['to_left']) if distances['to_left'] else 0,
+        'max_to_right': max(distances['to_right']) if distances['to_right'] else 0,
+        'max_to_top': max(distances['to_top']) if distances['to_top'] else 0,
+        'max_to_bottom': max(distances['to_bottom']) if distances['to_bottom'] else 0
+    }
+
+def adjust_region_boundary(x1: float, y1: float, x2: float, y2: float, 
+                          dist_info: Dict, margin_threshold: float = 20.0,
+                          min_expand: float = 5.0, max_expand: float = 30.0) -> Tuple[float, float, float, float]:
+    """根据点到边界距离调整区域边界"""
+    new_x1, new_y1, new_x2, new_y2 = x1, y1, x2, y2
+    
+    # 计算需要的扩展距离
+    left_expand = 0
+    right_expand = 0
+    top_expand = 0
+    bottom_expand = 0
+    
+    # 如果点到左边界的距离小于阈值，则向左扩展
+    if dist_info['min_to_left'] < margin_threshold:
+        left_expand = min(max_expand, max(min_expand, margin_threshold - dist_info['min_to_left']))
+    
+    # 如果点到右边界的距离小于阈值，则向右扩展
+    if dist_info['min_to_right'] < margin_threshold:
+        right_expand = min(max_expand, max(min_expand, margin_threshold - dist_info['min_to_right']))
+    
+    # 如果点到上边界的距离小于阈值，则向上扩展
+    if dist_info['min_to_top'] < margin_threshold:
+        top_expand = min(max_expand, max(min_expand, margin_threshold - dist_info['min_to_top']))
+    
+    # 如果点到下边界的距离小于阈值，则向下扩展
+    if dist_info['min_to_bottom'] < margin_threshold:
+        bottom_expand = min(max_expand, max(min_expand, margin_threshold - dist_info['min_to_bottom']))
+    
+    # 应用边界扩展
+    new_x1 = new_x1 - left_expand
+    new_x2 = new_x2 + right_expand
+    new_y1 = new_y1 - top_expand
+    new_y2 = new_y2 + bottom_expand
+    
+    # 记录调整信息
+    adjustment_info = {
+        'left_expand': left_expand,
+        'right_expand': right_expand,
+        'top_expand': top_expand,
+        'bottom_expand': bottom_expand,
+        'original_bounds': (x1, y1, x2, y2),
+        'adjusted_bounds': (new_x1, new_y1, new_x2, new_y2)
+    }
+    
+    return new_x1, new_y1, new_x2, new_y2, adjustment_info
+
 def crop_regions(image: np.ndarray, regions: List[Dict], 
                  all_horizontal: List[float], all_vertical: List[float],
-                 border_expand: int = 10, n_rows: int = 5, n_cols: int = 4, 
+                 n_rows: int = 5, n_cols: int = 4, 
                  min_points_per_region: int = 5,
+                 margin_threshold: float = 20.0,
                  target_aspect_ratio: float = 1.5, aspect_ratio_threshold: float = 1.0) -> List[Dict]:
-    """区域裁剪"""
+    """区域裁剪 - 只处理有效区域（点数>=5），无效区域被过滤"""
     h, w = image.shape[:2]
-    
-    # 计算扩展后的分界线
-    expanded_horizontal = [max(0, all_horizontal[0] - border_expand) if i == 0 else
-                          min(h, all_horizontal[-1] + border_expand) if i == len(all_horizontal) - 1 else
-                          y for i, y in enumerate(all_horizontal)]
-    
-    expanded_vertical = [max(0, all_vertical[0] - border_expand) if i == 0 else
-                        min(w, all_vertical[-1] + border_expand) if i == len(all_vertical) - 1 else
-                        x for i, x in enumerate(all_vertical)]
     
     cropped_regions = []
     region_counter = 1
     
     for r in range(n_rows):
         for c in range(n_cols):
-            y1, y2 = expanded_horizontal[r], expanded_horizontal[r + 1]
-            x1, x2 = expanded_vertical[c], expanded_vertical[c + 1]
+            y1, y2 = all_horizontal[r], all_horizontal[r + 1]
+            x1, x2 = all_vertical[c], all_vertical[c + 1]
             
-            # 收集区域内的点
+            # Step 1: 收集区域内的点
             region_points = []
             for region in regions:
                 cx = region.get('centroid', region.get('center', (0, 0)))[0]
@@ -219,45 +298,85 @@ def crop_regions(image: np.ndarray, regions: List[Dict],
                 if x1 <= cx <= x2 and y1 <= cy <= y2:
                     region_points.append({'cx': cx, 'cy': cy})
             
-            if len(region_points) >= min_points_per_region:
-                width = int(x2 - x1)
-                height = int(y2 - y1)
-                aspect_ratio = width / max(height, 1)
+            # 如果区域内点数小于阈值，跳过这个区域
+            if len(region_points) < min_points_per_region:
+                print(f"  区域({r},{c}): 无效区域，点数={len(region_points)} (<{min_points_per_region})，已跳过")
+                continue
+            
+            print(f"  区域({r},{c}): 有效区域，点数={len(region_points)}")
+            
+            # Step 2: 计算点到边界的距离
+            dist_info = calculate_boundary_distances(region_points, x1, y1, x2, y2)
+            
+            # Step 3: 根据距离调整边界
+            original_x1, original_y1, original_x2, original_y2 = x1, y1, x2, y2
+            adjusted = False
+            adjustment_info = None
+            
+            new_x1, new_y1, new_x2, new_y2, adjustment_info = adjust_region_boundary(
+                x1, y1, x2, y2, dist_info, margin_threshold
+            )
+            
+            # 检查是否进行了调整
+            if (new_x1 != x1 or new_x2 != x2 or new_y1 != y1 or new_y2 != y2):
+                adjusted = True
+                x1, y1, x2, y2 = new_x1, new_y1, new_x2, new_y2
+                print(f"    边界调整 - 左:{adjustment_info['left_expand']:.1f}px, "
+                      f"右:{adjustment_info['right_expand']:.1f}px, "
+                      f"上:{adjustment_info['top_expand']:.1f}px, "
+                      f"下:{adjustment_info['bottom_expand']:.1f}px")
+            
+            # Step 4: 宽高比调整（可选）
+            width = int(x2 - x1)
+            height = int(y2 - y1)
+            aspect_ratio = width / max(height, 1)
+            
+            if aspect_ratio < aspect_ratio_threshold and height > 0:
+                target_height = int(width / target_aspect_ratio)
                 
-                # 宽高比调整
-                adjusted = False
-                if aspect_ratio < aspect_ratio_threshold and height > 0:
-                    target_height = int(width / target_aspect_ratio)
+                if 0 < target_height < height:
+                    crop_top = sum(1 for p in region_points if y1 <= p['cy'] <= y1 + target_height)
+                    crop_bottom = sum(1 for p in region_points if y2 - target_height <= p['cy'] <= y2)
                     
-                    if 0 < target_height < height:
-                        crop_top = sum(1 for p in region_points if y1 <= p['cy'] <= y1 + target_height)
-                        crop_bottom = sum(1 for p in region_points if y2 - target_height <= p['cy'] <= y2)
-                        
-                        if crop_top >= crop_bottom:
-                            y2 = y1 + target_height
-                        else:
-                            y1 = y2 - target_height
-                        
-                        height = int(y2 - y1)
-                        aspect_ratio = width / height
-                        adjusted = True
-                
-                # 裁剪
-                cropped = image[int(y1):int(y2), int(x1):int(x2)]
-                
-                cropped_regions.append({
-                    'region_id': region_counter,
-                    'row': r,
-                    'col': c,
-                    'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2),
-                    'width': width, 'height': height,
-                    'aspect_ratio': aspect_ratio,
-                    'point_count': len(region_points),
-                    'adjusted': adjusted,
-                    'cropped': cropped
-                })
-                region_counter += 1
+                    if crop_top >= crop_bottom:
+                        y2 = y1 + target_height
+                    else:
+                        y1 = y2 - target_height
+                    
+                    height = int(y2 - y1)
+                    aspect_ratio = width / height
+            
+            # Step 5: 确保边界在图像范围内
+            x1, y1 = max(0, int(x1)), max(0, int(y1))
+            x2, y2 = min(w, int(x2)), min(h, int(y2))
+            
+            # 检查裁剪区域是否有效
+            if x2 <= x1 or y2 <= y1:
+                print(f"    警告: 裁剪区域无效 ({x1},{y1})-({x2},{y2})，跳过")
+                continue
+            
+            # Step 6: 裁剪区域
+            cropped = image[y1:y2, x1:x2]
+            
+            cropped_regions.append({
+                'region_id': region_counter,
+                'row': r,
+                'col': c,
+                'x1': int(x1), 'y1': int(y1), 'x2': int(x2), 'y2': int(y2),
+                'original_x1': int(original_x1), 'original_y1': int(original_y1),
+                'original_x2': int(original_x2), 'original_y2': int(original_y2),
+                'width': int(x2 - x1),
+                'height': int(y2 - y1),
+                'aspect_ratio': aspect_ratio,
+                'point_count': len(region_points),
+                'is_valid': True,
+                'adjusted': adjusted,
+                'adjustment_info': adjustment_info,
+                'cropped': cropped
+            })
+            region_counter += 1
     
+    print(f"\n区域裁剪完成: 总共{n_rows*n_cols}个区域, 保留{len(cropped_regions)}个有效区域")
     return cropped_regions
 
 def get_grid_points(image: np.ndarray, binary_image: np.ndarray, show: bool = True) -> Tuple[List[Dict], List[Dict], plt.Figure]:
@@ -288,10 +407,15 @@ def get_grid_points(image: np.ndarray, binary_image: np.ndarray, show: bool = Tr
     # KMeans聚类(5行4列) -> 确定区域分界线
     h_lines, v_lines = kmeans_clustering_regions(regions, image, n_rows=5, n_cols=4)
     
-    # 原图区域分割
-    cropped_regions = crop_regions(image, regions, h_lines, v_lines, 
-                                   border_expand=10, n_rows=5, n_cols=4, 
-                                   min_points_per_region=5)
+    # 原图区域分割（只保留有效区域）
+    cropped_regions = crop_regions(
+        image, regions, h_lines, v_lines, 
+        n_rows=5, n_cols=4, 
+        min_points_per_region=5,  # 最少5个点才认为是有效区域
+        margin_threshold=20.0,  # 边界距离阈值
+        target_aspect_ratio=1.5, 
+        aspect_ratio_threshold=1.0
+    )
     
     if not show:
         return regions, cropped_regions, None
@@ -360,30 +484,44 @@ def get_grid_points(image: np.ndarray, binary_image: np.ndarray, show: bool = Tr
     ax4 = plt.subplot(2, 2, 4)
     img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     ax4.imshow(img_rgb)
-    
-    # 绘制有效区域边界
+
+    # 只绘制有效区域（调整后）
     for region in cropped_regions:
         x1, y1, x2, y2 = region['x1'], region['y1'], region['x2'], region['y2']
-        color = 'green'
-        
-        rect = plt.Rectangle((x1, y1), x2-x1, y2-y1, 
-                            linewidth=2, edgecolor=color, 
-                            facecolor='none', alpha=0.8)
+
+        # 绘制调整后边界（实线）
+        rect = plt.Rectangle(
+            (x1, y1), 
+            x2 - x1, 
+            y2 - y1,
+            linewidth=2, 
+            edgecolor='red', 
+            linestyle='--',
+            facecolor='none', 
+            alpha=0.8
+        )
         ax4.add_patch(rect)
-        
-        ax4.text(x1 + (x2-x1)/2, y1 + (y2-y1)/2, f"{region['region_id']}", 
-                ha='center', va='center', fontsize=10, 
-                color=color, weight='bold',
-                bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-    
-    ax4.set_title('原图区域划分结果')
+
+        # 显示区域ID
+        ax4.text(
+            x1 + (x2 - x1) / 2, 
+            y1 + (y2 - y1) / 2, 
+            f"R{region['region_id']}", 
+            ha='center', 
+            va='center', 
+            fontsize=12, 
+            color='blue', 
+            weight='bold',
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8)
+        )
+
+    ax4.set_title('区域划分最终结果(动态扩展边界)')
     ax4.set_axis_off()
     
     plt.tight_layout()
     plt.show()
     
     return regions, cropped_regions, fig
-
 #--------------------------------------------------------------------------------------------------------------------
 # Part3: 检测点位填涂情况
 def process_single_region(region_img: np.ndarray, region_id: int, is_plot: bool = True, show: bool = False) -> Tuple[Dict, plt.Figure]:
@@ -440,7 +578,7 @@ def process_single_region(region_img: np.ndarray, region_id: int, is_plot: bool 
     df_points = pd.DataFrame(points)
 
     # Step7: KMeans行列聚类
-    df_clustered = independent_row_col_clustering(df_points.copy(), rows=5, cols=5)
+    df_clustered = independent_row_col_clustering(df_points.copy(), rows=5, cols=5, check=True)
 
     # Step8: 过滤离群点和重复点  
     df_cleaned, df_peripheral_removed, df_duplicates = remove_duplicated_and_outliers(df_clustered, interval_multiplier=1.5)
@@ -449,12 +587,12 @@ def process_single_region(region_img: np.ndarray, region_id: int, is_plot: bool 
     df_grid, df_interpolated = grid_linear_interpoltate(df_cleaned, n_rows=5, n_cols=5)
      
     # Step10: 腐蚀二值化图
-    kernel_erode = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))  
+    kernel_erode = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))  
     eroded = cv2.erode(binary, kernel_erode)
 
     # Step11: 检测各点位填涂情况
-    roi_w, roi_h = 24, 16
-    fill_threshold = 0.4
+    roi_w, roi_h = 22, 14
+    fill_threshold = 0.3
     answer, df_result = detect_answers(region_id, df_grid, eroded, roi_size=(roi_w, roi_h), fill_threshold=fill_threshold)
     
     base_question_num = (region_id - 1) * 5 + 1
@@ -769,7 +907,7 @@ def _recognize_answers(df: pd.DataFrame, region_id: int, base_question_num: int)
 def process_all_regions(image: np.ndarray, cropped_regions: List[Dict], 
                        region_plot: Any = None, region_plot_show: bool = False, 
                        show: bool = True) -> Tuple[Dict, Dict, plt.Figure, plt.Figure]:
-    """处理所有区域"""
+    """处理所有区域 - 只处理有效区域"""
     region_results = []
     region_plots = {}
     
@@ -783,7 +921,7 @@ def process_all_regions(image: np.ndarray, cropped_regions: List[Dict],
         region_plot_list = region_plot if isinstance(region_plot, list) else []
     
     for i, region in enumerate(cropped_regions, 1):
-        print(f"\n正在处理区域 {i}...")
+        print(f"\n正在处理区域 {i} (原始位置: 行{region['row']}, 列{region['col']})...")
         
         region_img = region['cropped'].copy()
         
@@ -890,7 +1028,7 @@ def _plot_global_result(image: np.ndarray, cropped_regions: List[Dict], region_r
                         ax.add_patch(rect)
     
     ax.set_axis_off()
-    ax.set_title('答题卡全局填涂检测结果', fontsize=16, pad=20)
+    ax.set_title('答题卡全局填涂检测结果 (只显示有效区域)', fontsize=16, pad=20)
     
     from matplotlib.patches import Patch
     legend_elements = [
@@ -911,7 +1049,7 @@ def _plot_answer_table(all_answers: Dict[int, str]) -> plt.Figure:
     fig = plt.figure(figsize=(16, 6))
     ax = plt.subplot(111)
     ax.axis('off')
-    ax.set_title('答题情况汇总表', fontsize=16, pad=50)
+    ax.set_title('答题情况汇总表 (只显示有效区域)', fontsize=16, pad=50)
     
     all_answers_list = ['/'] * 85
     for q_num, ans in all_answers.items():
@@ -975,7 +1113,7 @@ def recognize_answers(answer_region, show=True):
     # Part3 确认填涂情况，识别答案
     all_answers, region_plots, fig3, fig4 = process_all_regions(
         resized, cropped_regions, 
-        region_plot=[1], # 'All'：绘制所有区域处理过程图  (e.x.)[1, 3]: 只绘制指定区域处理过程图  None：不绘制
+        region_plot=[3], # 'All'：绘制所有区域处理过程图  (e.x.)[1, 3]: 只绘制指定区域处理过程图  None：不绘制
         region_plot_show=True,  # 区域处理图是否显示
         show=show
     )
@@ -983,12 +1121,12 @@ def recognize_answers(answer_region, show=True):
     return all_answers, [fig1, fig2, fig3, fig4], region_plots
 
 if __name__ == '__main__':
-    image_path = 'images/test5.jpg'
+    image_path = '../images/test15.jpg'
     ans_raw, _ = process_answer_sheet(image_path, show=False)
     all_answers, all_figures, region_plots = recognize_answers(ans_raw, show=True) 
     
     print("\n" + "="*50)
-    print("答题卡识别结果")
+    print("答题卡识别结果 (只包含有效区域)")
     print("="*50)
     
     for question_num, answer in sorted(all_answers.items()):
